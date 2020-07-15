@@ -1,0 +1,7 @@
+
+daemon[0]="ping www.baidu.com"
+daemon[1]="date > /tmp/date.log"
+daemon[2]="node --version"
+
+# seconds
+interval=10 

@@ -1,0 +1,201 @@
+﻿#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          shell-daemon
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Shell script running daemon
+# Description:       Running as a service to make sure the shell scripts running well, and also start while system boot.
+### END INIT INFO
+# -*- coding: utf-8 -*-
+# Debian init.d script for SHELL-DAEMON
+# Copyright © 2020 Ren Kun <ren.kun@grus.io>
+
+#
+# Use LSB init script functions for printing messages, if possible
+
+name=shell-daemon
+conf=/etc/$name.cnf
+#
+lsb_functions="/lib/lsb/init-functions"
+if test -f $lsb_functions ; then
+  . $lsb_functions
+else
+  log_success_msg()
+  {
+    echo " SUCCESS! $@"
+  }
+  log_failure_msg()
+  {
+    echo " ERROR! $@"
+  }
+fi
+
+set -e
+
+
+if test -f $conf; then
+    while read line;
+    do
+        #echo $line
+        eval "$line"
+    done < $conf
+fi
+
+daemon_length=${#daemon[@]}
+is_running=0
+
+start() {
+    echo "starting ${daemon_length} daemon..."
+    _pid_file=/tmp/${name}.pid
+
+    # wirte shell-daemon pid file
+    if [[ $? -eq 0 ]] && ps -p $! > /dev/null ; then
+    	echo $! > ${_pid_file}
+    else
+        echo " ... cannot find ${name} pid"
+    fi
+
+	for (( i=0; i < $daemon_length; i++ )) ;do
+		start_daemon $i
+	done
+
+
+	run
+}
+
+start_daemon() {
+	i=$1
+	_daemon=${daemon[$i]}
+    _pid_file=/tmp/${name}-${i}.pid
+    check $i
+    if [[ $is_running == 0 ]]; then
+    	echo "running ... ${_daemon}"
+	    $_daemon >/dev/null 2>&1  &
+	    sleep 1
+	    if [[ $? -eq 0 ]] && ps -p $! > /dev/null ; then
+	    	# Only still running program write to pid
+	    	echo $! > ${_pid_file}
+	        echo " ... successfully."
+	    else
+	        echo " ... started, but stopped!!!"
+	    fi
+	else
+	     echo " ... already running."
+	fi
+}
+
+stop() {
+    echo "stopping ${daemon_length} daemon..."
+    
+	for (( i=0; i < $daemon_length; i++ )) ;do
+		_daemon=${daemon[$i]}
+	    _pid_file=/tmp/${name}-${i}.pid
+
+	    echo "stop ... ${_daemon}"
+	    if [[ -e ${_pid_file} ]] ; then
+		    _pid=$(cat ${_pid_file})
+		    if [[ -n $_pid ]] && ps -p $_pid > /dev/null
+		    then
+			    kill -9 $_pid > /dev/null
+		    	sleep 1
+			    if [[ $! -eq 0 ]]; then
+			        echo " ... successfully."
+		    	fi
+		    else 
+		        echo " ... NOT FOUND."
+		    fi
+		    rm -f ${_pid_file}
+	    else 
+	        echo " ... not started"
+		fi
+	done
+
+	killme
+}
+
+status() {
+    echo "status..."
+
+	for (( i=0; i < $daemon_length; i++ )) ;do
+		_daemon=${daemon[$i]}
+
+	    check $i
+	    if [[ $is_running == 1 ]] ; then
+		    echo "[${_daemon}] is running"
+		else
+			echo "[${_daemon}] is NOT running..."
+		fi
+
+	done
+}
+
+check() {
+	_daemon=${daemon[$1]}
+    _pid_file=/tmp/${name}-$1.pid
+    is_running=0
+    if [[ -e ${_pid_file} ]] ; then
+	    _pid=$(cat ${_pid_file})
+	    if [[ -n $_pid ]] && ps -p $_pid > /dev/null
+	    then
+    		echo "running..."
+    		is_running=1
+	    fi
+	fi
+}
+ 
+run() {
+	while  [[ $terminated -eq 0 ]] 
+	do
+		sleep $interval
+
+		for (( i=0; i < $daemon_length; i++ )) ;do
+			_daemon=${daemon[$i]}
+			check $i
+		    if [[ $is_running == 0 ]] ; then
+			    echo "[${_daemon}] died, restarting..."
+				start_daemon $i
+			fi
+		done
+	done
+}
+
+killme() {
+    _pid_file=/tmp/${name}.pid
+    _pid=0
+    if [[ -e ${_pid_file} ]] ; then
+	    _pid=$(cat ${_pid_file})
+	else
+		_pid=$(ps -ef | grep "${name} start" | grep -v grep | awk '{print $2}')
+	fi
+	kill -9 $_pid > /dev/null
+}
+
+call() {
+    case $1 in
+        'start')
+            start
+            ;;
+        'stop')
+            stop
+            ;;
+        'status')
+            status
+            ;;
+        'restart')
+            stop
+            start
+            ;;
+        *)
+            # shellcheck disable=SC2016
+            echo 'Get invalid option, please input(as to $1):'
+            echo -e '\t"start" -> start service'
+            echo -e '\t"stop"  -> stop service'
+            echo -e '\t"status"  -> status service'
+            exit 1
+    esac
+}
+
+call "$1"
+
